@@ -860,7 +860,7 @@ export default function App() {
             <div className="premium-card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 700, color: "var(--text-title)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  {isLead ? "Regional Node Summaries" : userLocation + " Operational Summary"}
+                  {isLead ? "Regional Summaries" : userLocation + " Operational Summary"}
                 </h2>
                 <button className="btn btn-success" onClick={handleDownload} style={{ padding: "8px 16px", fontSize: 12 }}>
                   📥 Export Dataset
@@ -871,7 +871,7 @@ export default function App() {
                 <table className="summary-table">
                   <thead>
                     <tr>
-                      {["Location", "Initiatives", "Male", "Female", "Aggregate", "New Reach", "Repeat Reach", "State Vectors"].map((h) => (
+                      {["Location", "Initiatives", "Male", "Female", "Aggregate", "New Reach", "Repeated", "Status"].map((h) => (
                         <th key={h}>{h}</th>
                       ))}
                     </tr>
@@ -909,7 +909,7 @@ export default function App() {
                     ))}
                     {isLead && (
                       <tr style={{ borderTop: "2px solid rgba(99, 102, 241, 0.25)", background: "rgba(99, 102, 241, 0.05)" }}>
-                        <td style={{ fontWeight: 800, color: "#818cf8" }}>TOTAL NODE VECTOR</td>
+                        <td style={{ fontWeight: 800, color: "#818cf8" }}>TOTAL</td>
                         <td style={{ fontWeight: 800, color: "#818cf8", fontFamily: "var(--font-mono)" }}>{grand.count}</td>
                         <td style={{ fontWeight: 700, fontFamily: "var(--font-mono)" }}>{grand.male}</td>
                         <td style={{ fontWeight: 700, fontFamily: "var(--font-mono)" }}>{grand.female}</td>
