@@ -1061,12 +1061,14 @@ export default function App() {
                   📍 {userLocation}
                 </div>
               ) : (
+                
                 <select
                   value={current.location}
                   onChange={(e) => setCurrent({ ...current, location: e.target.value })}
                   className="input-field"
                   style={{ cursor: "pointer", appearance: "auto" }}
                 >
+                  <option value="" disabled>Select Location Node...</option>
                   {locations.map((l) => (
                     <option key={l} value={l}>
                       {l}
