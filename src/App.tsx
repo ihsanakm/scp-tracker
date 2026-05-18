@@ -183,6 +183,18 @@ export default function App() {
 
   useEffect(() => {
     const initData = async () => {
+      // 1. Immediately load from localStorage cache for instant UI rendering & reliable offline-first fallback
+      const localData = await sLoad(DATA_KEY);
+      const localLocs = await sLoad(LOC_KEY);
+
+      if (localData) setEntries(localData);
+      if (localLocs && Array.isArray(localLocs) && localLocs.length > 0) {
+        setLocations(localLocs);
+      } else {
+        setLocations(DEFAULT_LOCATIONS);
+      }
+
+      // 2. Fetch from Supabase in the background to sync with live data
       if (isSupabaseConfigured && supabase) {
         try {
           // Fetch entries from Supabase
@@ -201,31 +213,30 @@ export default function App() {
 
           if (locsError) throw locsError;
 
-          if (dbEntries) setEntries(dbEntries);
+          if (dbEntries) {
+            setEntries(dbEntries);
+            await sSave(DATA_KEY, dbEntries);
+          }
+          
           if (dbLocs && dbLocs.length > 0) {
-            setLocations(dbLocs.map((l: any) => l.name));
+            const fetchedLocs = dbLocs.map((l: any) => l.name);
+            setLocations(fetchedLocs);
+            await sSave(LOC_KEY, fetchedLocs);
           } else {
             // Seed default locations if DB is empty
             const seedLocs = DEFAULT_LOCATIONS;
             await supabase.from("locations").insert(seedLocs.map(name => ({ name })));
             setLocations(seedLocs);
+            await sSave(LOC_KEY, seedLocs);
           }
         } catch (err) {
           console.error("Error loading data from Supabase:", err);
-          showToast("⚠️ DB fetch failed. Loading local fallback.");
-          const localData = await sLoad(DATA_KEY);
-          const localLocs = await sLoad(LOC_KEY);
-          if (localData) setEntries(localData);
-          if (localLocs && Array.isArray(localLocs) && localLocs.length > 0) setLocations(localLocs);
+          showToast("⚠️ DB sync failed. Running in offline/cached mode.");
+          // Note: We leave the local state intact since it was already loaded from local cache!
         } finally {
           setLoading(false);
         }
       } else {
-        // Fallback to localStorage
-        const localData = await sLoad(DATA_KEY);
-        const localLocs = await sLoad(LOC_KEY);
-        if (localData) setEntries(localData);
-        if (localLocs && Array.isArray(localLocs) && localLocs.length > 0) setLocations(localLocs);
         setLoading(false);
       }
     };
@@ -304,6 +315,22 @@ export default function App() {
       repeatedParticipants: parseInt(String(current.repeatedParticipants)) || 0,
     };
 
+    let updated: Entry[];
+    if (editingId) {
+      updated = entries.map((e) => e.id === editingId ? itemToSave : e);
+      setEditingId(null);
+      showToast("✅ Entry updated — " + current.initiative);
+      setActiveTab("records");
+    } else {
+      updated = [...entries, itemToSave];
+      showToast("✅ Entry saved");
+    }
+
+    // Always update local state and local storage first for durability and offline safety
+    setEntries(updated);
+    await persistEntries(updated);
+    setCurrent(emptyEntry(isLead ? current.location : userLocation));
+
     if (isSupabaseConfigured && supabase) {
       try {
         const { error } = await supabase
@@ -311,43 +338,11 @@ export default function App() {
           .upsert(itemToSave);
 
         if (error) throw error;
-        
-        let updated: Entry[];
-        if (editingId) {
-          updated = entries.map((e) => e.id === editingId ? itemToSave : e);
-          setEditingId(null);
-          showToast("✅ Entry updated — " + current.initiative);
-          setActiveTab("records");
-        } else {
-          updated = [...entries, itemToSave];
-          showToast("✅ Entry saved");
-        }
-        setEntries(updated);
-        setCurrent(emptyEntry(isLead ? current.location : userLocation));
+        showToast("✅ Synced to cloud database");
       } catch (err: any) {
         console.error("Save error:", err);
-        showToast("❌ DB Save Error: " + err.message);
+        showToast("⚠️ Saved locally. Cloud sync failed: " + err.message);
       }
-    } else {
-      // Fallback
-      let updated: Entry[];
-      if (editingId) {
-        updated = entries.map((e) =>
-          e.id === editingId ? { ...itemToSave } : e
-        );
-        setEditingId(null);
-        showToast("✅ Entry updated — " + current.initiative);
-        setActiveTab("records");
-      } else {
-        updated = [
-          ...entries,
-          itemToSave,
-        ];
-        showToast("✅ Entry saved");
-      }
-      setEntries(updated);
-      await persistEntries(updated);
-      setCurrent(emptyEntry(isLead ? current.location : userLocation));
     }
   };
 
@@ -366,6 +361,14 @@ export default function App() {
   };
 
   const handleDelete = async (id: string) => {
+    const updated = entries.filter((e) => e.id !== id);
+
+    // Always update local state and local storage first
+    setEntries(updated);
+    await persistEntries(updated);
+    if (editingId === id) cancelEdit();
+    showToast("🗑️ Entry deleted");
+
     if (isSupabaseConfigured && supabase) {
       try {
         const { error } = await supabase
@@ -374,22 +377,11 @@ export default function App() {
           .eq("id", id);
 
         if (error) throw error;
-
-        const updated = entries.filter((e) => e.id !== id);
-        setEntries(updated);
-        if (editingId === id) cancelEdit();
-        showToast("🗑️ Entry deleted");
+        showToast("🗑️ Entry deleted and synced to cloud");
       } catch (err: any) {
         console.error("Delete error:", err);
-        showToast("❌ DB Delete Error: " + err.message);
+        showToast("⚠️ Deleted locally. Cloud sync failed: " + err.message);
       }
-    } else {
-      // Fallback
-      const updated = entries.filter((e) => e.id !== id);
-      setEntries(updated);
-      await persistEntries(updated);
-      if (editingId === id) cancelEdit();
-      showToast("🗑️ Entry deleted");
     }
   };
 
@@ -416,6 +408,13 @@ export default function App() {
       return;
     }
 
+    const updated = [...locations, name];
+
+    // Always update local state and local storage first for durability and offline safety
+    setLocations(updated);
+    await persistLocations(updated);
+    setNewLocName("");
+
     if (isSupabaseConfigured && supabase) {
       try {
         const { error } = await supabase
@@ -423,22 +422,13 @@ export default function App() {
           .insert({ name });
 
         if (error) throw error;
-
-        const updated = [...locations, name];
-        setLocations(updated);
-        setNewLocName("");
-        showToast("✅ " + name + " added");
+        showToast("✅ " + name + " added and synced to cloud");
       } catch (err: any) {
         console.error("Add location error:", err);
-        showToast("❌ DB Error: " + err.message);
+        showToast("⚠️ Added locally. Cloud sync failed: " + err.message);
       }
     } else {
-      // Fallback
-      const updated = [...locations, name];
-      setLocations(updated);
-      await persistLocations(updated);
-      setNewLocName("");
-      showToast("✅ " + name + " added");
+      showToast("✅ " + name + " added locally");
     }
   };
 
@@ -448,6 +438,12 @@ export default function App() {
       return;
     }
 
+    const updated = locations.filter((l) => l !== loc);
+
+    // Always update local state and local storage first
+    setLocations(updated);
+    await persistLocations(updated);
+
     if (isSupabaseConfigured && supabase) {
       try {
         const { error } = await supabase
@@ -456,20 +452,13 @@ export default function App() {
           .eq("name", loc);
 
         if (error) throw error;
-
-        const updated = locations.filter((l) => l !== loc);
-        setLocations(updated);
-        showToast("🗑️ " + loc + " removed");
+        showToast("🗑️ " + loc + " removed and synced to cloud");
       } catch (err: any) {
         console.error("Remove location error:", err);
-        showToast("❌ DB Error: " + err.message);
+        showToast("⚠️ Removed locally. Cloud sync failed: " + err.message);
       }
     } else {
-      // Fallback
-      const updated = locations.filter((l) => l !== loc);
-      setLocations(updated);
-      await persistLocations(updated);
-      showToast("🗑️ " + loc + " removed");
+      showToast("🗑️ " + loc + " removed locally");
     }
   };
 
